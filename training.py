@@ -28,8 +28,9 @@ class LinearLayer:
             batch_size = out.value.shape[0]
             # Bias je jeden vektor (out_features,) a ma byt pouzity na vsechny
             # obrazky v batchi. (batch_size, out_features)
-            # Musime ho zde tedy zduplikovat - takoveto zmene tvaru pro kompatibilni
-            # tensory se v podobnych knihovnach rika `broadcasting`. 
+            # Musime ho zde tedy zduplikovat - takovato zmena tvaru pro kompatibilni
+            # tensory se obvykle deje jako soucast implementace operatoru (v nasem pripade add)
+            # a v podobnych knihovnach se tomu rika `broadcasting`. 
             bias = p.stack_tensors([self.bias] * batch_size, axis=0)
 
         return p.add(out, bias)

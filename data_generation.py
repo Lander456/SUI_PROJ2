@@ -38,3 +38,16 @@ def load_cifar10(root='./data', train=True, num_samples=None, seed=42, classes=E
         labels = labels[indices]
 
     return list(images), list(labels)
+
+
+def split_train_val(images, labels, val_fraction=0.1, seed=42):
+    num_val = int(len(images) * val_fraction)
+    indices = np.random.default_rng(seed).permutation(len(images))
+    val_indices, train_indices = indices[:num_val], indices[num_val:]
+
+    train_images = [images[i] for i in train_indices]
+    train_labels = [labels[i] for i in train_indices]
+    val_images = [images[i] for i in val_indices]
+    val_labels = [labels[i] for i in val_indices]
+
+    return train_images, train_labels, val_images, val_labels

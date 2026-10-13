@@ -161,6 +161,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=0.003)
     parser.add_argument('--num-train-samples', type=int, default=1000)
     parser.add_argument('--num-test-samples', type=int, default=300)
+    parser.add_argument('--val-fraction', type=float, default=0.1)
     parser.add_argument('--data-root', type=str, default='./data')
     parser.add_argument('--do-plots', action='store_true')
     parser.add_argument('--save-plot', type=str, default=None)
@@ -176,14 +177,21 @@ def main():
     train_images, train_labels = dg.load_cifar10(root=args.data_root, train=True, num_samples=args.num_train_samples, seed=args.seed)
     test_images, test_labels = dg.load_cifar10(root=args.data_root, train=False, num_samples=args.num_test_samples, seed=args.seed)
 
+    # Validacni sada jde z trenovaci sady -- testovaci sada zustava
+    # nedotcena az do finalniho vyhodnoceni.
+    train_images, train_labels, val_images, val_labels = dg.split_train_val(
+        train_images, train_labels, val_fraction=args.val_fraction, seed=args.seed
+    )
+
     print(f"Train samples: {len(train_images)}")
+    print(f"Val samples: {len(val_images)}")
     print(f"Test samples: {len(test_images)}")
 
     model = CIFAR10Classifier(num_classes=len(dg.EASY_CLASSES))
     optimizer = StochasticGradientDescent(model.parameters(), lr=args.lr)
 
     print("\nTraining...")
-    losses, val_accuracies = train_model(model, train_images, train_labels, optimizer, args.num_epochs, test_images, test_labels)
+    losses, val_accuracies = train_model(model, train_images, train_labels, optimizer, args.num_epochs, val_images, val_labels)
 
     print("\nEvaluating...")
     test_loss, test_acc = evaluate_model(model, test_images, test_labels)

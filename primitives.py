@@ -172,15 +172,6 @@ def flatten(tensor, start_dim=-3):
     return reshape(tensor, new_shape)
 
 
-def transpose(tensor):
-    out = tensor.value.T
-
-    def back_op(grad):
-        tensor.backward(grad.T)
-
-    return Tensor(out, back_op=back_op)
-
-
 def stack_tensors(tensors, axis=1):
     tensor_values = [t.value for t in tensors]
     stacked = np.stack(tensor_values, axis=axis)

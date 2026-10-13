@@ -20,7 +20,8 @@ class Tensor:
     def backward(self, deltas=None):
         # Neni prvnim uzlem grafu
         if deltas is not None:
-            assert deltas.shape == self.value.shape, f'Expected gradient with shape {self.value.shape}, got {deltas.shape}'
+            if deltas.shape != self.value.shape:
+                raise ValueError(f'Expected gradient with shape {self.value.shape}, got {deltas.shape}')
             self.grad += deltas
             
             if self.back_op:

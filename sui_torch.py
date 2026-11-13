@@ -143,7 +143,7 @@ class MaxPool2DLayer:
         batch, channels, height, width = x_val.shape
 
         #create sliding windows over the image pixels across all channels and batches
-        windows = np.lib.stride_tricks.sliding_window_view(
+        windows = sliding_window_view(
             x_val,
             (self._pool_size, self._pool_size),
             axis=(WindowAxes.H_Pos, WindowAxes.V_Pos)

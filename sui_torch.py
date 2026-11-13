@@ -2,6 +2,29 @@ import numpy as np
 import primitives as p
 from numpy.lib.stride_tricks import sliding_window_view
 
+# enums to make the tensor operation more readable
+class WindowAxes:
+    Batch   = 0
+    Channel = 1
+    H_Pos   = 2
+    V_Pos   = 3
+    Height  = 4
+    Width   = 5
+
+
+class FilterAxes:
+    OutChannels = 0
+    InChannels  = 1
+    Height      = 2
+    Width       = 3
+
+
+class GradAxes:
+    Batch      = 0
+    OutChannel = 1
+    H_Pos      = 2
+    V_Pos      = 3
+
 
 class Conv2DLayer:
     def __init__(self, in_channels, out_channels, kernel_size):
@@ -9,58 +32,93 @@ class Conv2DLayer:
         self.out_channels = out_channels
         self.kernel_size  = kernel_size
 
+        # scale random weights using He initialization
         scale = np.sqrt(2.0 / (in_channels * kernel_size * kernel_size))
 
-        self.kernels = [
-            p.Tensor(np.random.randn(in_channels, kernel_size, kernel_size) * scale)
-            for _ in range(out_channels)
-        ]
+        # init the filters
+        self.kernels = []
+        for _ in range(out_channels):
+            # use Z-score normalization to standardize the weights
+            weights = np.random.randn(in_channels, kernel_size, kernel_size)
+            weights = (weights - weights.mean()) / (weights.std() + 1e-8)
+            self.kernels.append(p.Tensor(weights * scale))
+
         self.bias = p.Tensor(np.zeros(out_channels))
 
     def forward(self, x):
-        is_unbatched = (x.value.ndim == 3)
-        
-        x_val = x.value[np.newaxis, ...] if is_unbatched else x.value
-        K = self.kernel_size
+        # x: (channels, H, W) unbatched, nebo (batch_size, channels, H, W)
+        K, WA, FA, GA = self.kernel_size, WindowAxes, FilterAxes, GradAxes
 
-        weights = np.stack([k.value for k in self.kernels], axis=0)
-        windows = sliding_window_view(x_val, (K, K), axis=(2, 3))
+        # check if the tensor is batched or unbatched
+        batched = (x.value.ndim > 3)
 
-        result = np.tensordot(windows, weights, axes=((1, 4, 5), (1, 2, 3)))
+        # in case of an unbatched tensor add the forth dimension of value 1
+        x_val = x.value if batched else x.value.reshape(1, *x.value.shape)
+
+        # stack filter weights and create a view of all sliding input windows
+        filter  = np.stack([k.value for k in self.kernels], axis=0)
+        windows = sliding_window_view(x_val, (K, K), axis=(WA.H_Pos, WA.V_Pos))
+
+        # multiply all windows with the filter
+        result = np.tensordot(windows, filter, axes=(
+            (WA.Channel,    WA.Height, WA.Width),
+            (FA.InChannels, FA.Height, FA.Width)
+        ))
+        # return OutChannels moved by tensordot back to position 1
         result = np.moveaxis(result, -1, 1)
+        # add bias to result
         result += self.bias.value[np.newaxis, :, np.newaxis, np.newaxis]
 
-        if is_unbatched:
+        # unpack unbatched result
+        if not batched:
             result = result[0]
 
+        # function used for back-propagation
         def back_op(grad):
-            grad_4d = grad[np.newaxis, ...] if is_unbatched else grad
+            # add forth dimension when not batched
+            grad_4d = grad if batched else grad.reshape(1, *grad.shape)
 
-            grad_bias = np.sum(grad_4d, axis=(0, 2, 3))
+            # compute the loss gradient to bias and pass it to the bias tensor
+            grad_bias = np.sum(grad_4d, axis=(GA.Batch, GA.H_Pos, GA.V_Pos))
             self.bias.backward(grad_bias)
 
-            grad_weights = np.tensordot(grad_4d, windows, axes=((0, 2, 3), (0, 2, 3)))
+            # compute the loss gradient to filter weights
+            grad_filter = np.tensordot(grad_4d, windows, axes=(
+                (GA.Batch, GA.H_Pos, GA.V_Pos),
+                (WA.Batch, WA.H_Pos, WA.V_Pos)
+            ))
 
-            for k_tensor, gw in zip(self.kernels, grad_weights):
-                k_tensor.backward(gw)
+            # pass the gradient to each out channel of the filter
+            for tensor, grad_weight in zip(self.kernels, grad_filter):
+                tensor.backward(grad_weight)
 
+            # zero-pad the output gradient
             grad_padded = np.pad(
                 grad_4d,
                 ((0, 0), (0, 0), (K - 1, K - 1), (K - 1, K - 1)),
                 mode='constant'
             )
 
-            grad_windows    = sliding_window_view(grad_padded, (K, K), axis=(2, 3))
-            weights_flipped = weights[:, :, ::-1, ::-1]
+            # create sliding windows over the padded output gradient and rotate the filter by 180 degrees
+            grad_windows   = sliding_window_view(grad_padded, (K, K), axis=(WA.H_Pos, WA.V_Pos))
+            filter_flipped = filter[:, :, ::-1, ::-1]
 
-            grad_x = np.tensordot(grad_windows, weights_flipped, axes=((1, 4, 5), (0, 2, 3)))
+            # calculate dotproduct of all the windows of the out gradient and the flipped filter
+            grad_x = np.tensordot(grad_windows, filter_flipped, axes=(
+                (WA.Channel,     WA.Height, WA.Width),
+                (FA.OutChannels, FA.Height, FA.Width)
+            ))
+            # return OutChannels moved by tensordot back to position 1
             grad_x = np.moveaxis(grad_x, -1, 1)
 
-            if is_unbatched:
+            # unpack unbatched gradient
+            if not batched:
                 grad_x = grad_x[0]
 
+            # pass the input gradient to the input tensor for further backpropagation
             x.backward(grad_x)
 
+        # return the convolution output tensor with its backward function
         return p.Tensor(result, back_op=back_op)
 
     def parameters(self):

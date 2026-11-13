@@ -1,3 +1,8 @@
+# sui_torch.py
+# Authors : Tadeáš Topinka, xtopint00 (team leader)
+#         : Ondřej Schwarz, xschwao00
+# Date    : 13.11.2026
+
 import numpy as np
 import primitives as p
 from numpy.lib.stride_tricks import sliding_window_view
@@ -195,7 +200,7 @@ class MaxPool2DLayer:
 
             #if input didn't have a batch dimension, squeeze it out
             if x.value.ndim == 3:
-                grad_x = grad_x.squeeze(axis=GradAxes.Batch)
+                grad_x = grad_x.squeeze(axis=OutputGradAxes.Batch)
 
             #backward propagate
             x.backward(grad_x)

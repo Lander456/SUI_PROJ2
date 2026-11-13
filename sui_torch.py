@@ -69,8 +69,8 @@ class Conv2DLayer:
 
 class MaxPool2DLayer:
     def __init__(self, pool_size, stride):
-        self._pool_size: int = pool_size
-        self._stride: int = stride
+        self._pool_size = pool_size
+        self._stride = stride
 
     def forward(self, x):
         # x: (channels, H, W) unbatched, nebo (batch_size, channels, H, W)

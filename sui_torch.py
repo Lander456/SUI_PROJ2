@@ -158,13 +158,11 @@ class MaxPool2DLayer:
         windows = windows[: ,:, ::self._stride, ::self._stride, :, :]
         _, _, height_out, width_out, _, _ = windows.shape
 
-        #flatten windows to 1D to be able to apply numpy operations on them and avoid loops
+        #flatten windows to 1D to be able to apply numpy operations on them, leading to vectorisation
         windows_flat = windows.reshape(batch, channels, height_out, width_out, self._pool_size * self._pool_size)
 
-        #get pixels with max values for each window (most prominent ones, I guess I could call them that?)
+        #get pixels with max values and their 1D positions in each window
         out_val = np.max(windows_flat, axis=-1)
-
-        #get the positions of the max valued pixels inside each of the windows (most prominent, not sure what else to call them)
         max_indices = np.argmax(windows_flat, axis=-1)
 
         #if no batches, squeeze out the dummy dimension inserted for normalisation
@@ -179,7 +177,7 @@ class MaxPool2DLayer:
             else:
                 normalised_grad = grad
 
-            #initialise gradient to zero (if the pixel was filtered out, it had no impact on the output)
+            #initialise gradient to zero, only max pixels receive a gradient, rest can be left as zeroes
             grad_x = np.zeros_like(x_val)
 
             #unravel to get the height and width offsets of the pixel that had the maximum value (passed on)
@@ -188,7 +186,7 @@ class MaxPool2DLayer:
                 (self._pool_size, self._pool_size),
             )
 
-            #get a vector of indices for each window
+            #get a vector of indices for all output positions
             batch_idx, channels_idx, height_idx, width_idx = np.ogrid[:batch, :channels, :height_out, :width_out]
 
             #multiply by stride and add the offsets to get the real indices of the pixels in the input
@@ -202,7 +200,7 @@ class MaxPool2DLayer:
             if x.value.ndim == 3:
                 grad_x = grad_x.squeeze(axis=OutputGradAxes.Batch)
 
-            #backward propagate
+            #pass gradient to tensor for backpropagation
             x.backward(grad_x)
 
         #return the output tensor with the value and back_op

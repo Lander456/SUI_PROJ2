@@ -32,8 +32,8 @@ class Conv2DLayer:
         self.out_channels = out_channels
         self.kernel_size  = kernel_size
 
-        # scale random weights using He initialization
-        scale = np.sqrt(2.0 / (in_channels * kernel_size * kernel_size))
+        # scale random weights using He initialization (multiplier 0.91 was found out experimentaly to produce best results)
+        scale = 0.91 * np.sqrt(2 / (in_channels * (kernel_size ** 2)))
 
         # init the filters
         self.kernels = []
@@ -43,6 +43,7 @@ class Conv2DLayer:
             weights = (weights - weights.mean()) / (weights.std() + 1e-8)
             self.kernels.append(p.Tensor(weights * scale))
 
+        # setup zero start bias
         self.bias = p.Tensor(np.zeros(out_channels))
 
     def forward(self, x):

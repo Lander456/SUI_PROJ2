@@ -146,7 +146,7 @@ class MaxPool2DLayer:
         windows = np.lib.stride_tricks.sliding_window_view(
             x_val,
             (self._pool_size, self._pool_size),
-            axis=(2, 3)
+            axis=(WindowAxes.H_Pos, WindowAxes.V_Pos)
         )
 
         #apply stride to the windows, selecting only every stride-th window
@@ -164,7 +164,7 @@ class MaxPool2DLayer:
 
         #if no batches, squeeze out the dummy dimension inserted for normalisation
         if x.value.ndim == 3:
-            out_val = out_val.squeeze(axis=0)
+            out_val = out_val.squeeze(axis=WindowAxes.Batch)
 
         def back_op(grad):
 
@@ -195,7 +195,7 @@ class MaxPool2DLayer:
 
             #if input didn't have a batch dimension, squeeze it out
             if x.value.ndim == 3:
-                grad_x = grad_x.squeeze(axis=0)
+                grad_x = grad_x.squeeze(axis=GradAxes.Batch)
 
             #backward propagate
             x.backward(grad_x)

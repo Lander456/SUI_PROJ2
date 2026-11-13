@@ -37,7 +37,7 @@ class Conv2DLayer:
         self.out_channels = out_channels
         self.kernel_size  = kernel_size
 
-        # scale standardized weights; 0.91 was tuned experimentally for this setup
+        # scale for standardized weights (0.91 was found experimentally to produce better results)
         scale = 0.91 * np.sqrt(2 / (in_channels * (kernel_size ** 2)))
 
         # init the filters
@@ -62,7 +62,7 @@ class Conv2DLayer:
         x_val = x.value if batched else x.value.reshape(1, *x.value.shape)
 
         # stack filter weights and create a view of all sliding input windows
-        filters = np.stack([k.value for k in self.kernels], axis=0)
+        filters = np.stack([k.value for k in self.kernels])
         windows = sliding_window_view(x_val, (K, K), axis=(WA.H_Pos, WA.V_Pos))
 
         # multiply all windows with the filters
@@ -79,16 +79,16 @@ class Conv2DLayer:
         if not batched:
             result = result[0]
 
-        # function used for back-propagation
+        # function used for backpropagation
         def back_op(grad):
             # add a batch dimension for an unbatched gradient
             grad_4d = grad if batched else grad.reshape(1, *grad.shape)
 
-            # compute the loss gradient with respect to the bias and pass it to the bias tensor
+            # compute the loss gradient to the bias and pass it to the bias tensor
             grad_bias = np.sum(grad_4d, axis=(GA.Batch, GA.H_Pos, GA.V_Pos))
             self.bias.backward(grad_bias)
 
-            # compute the loss gradient with respect to the filter weights
+            # compute the loss gradient to the filter weights
             grad_filter = np.tensordot(grad_4d, windows, axes=(
                 (GA.Batch, GA.H_Pos, GA.V_Pos),
                 (WA.Batch, WA.H_Pos, WA.V_Pos)

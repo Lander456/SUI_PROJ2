@@ -2,7 +2,7 @@ import numpy as np
 import primitives as p
 from numpy.lib.stride_tricks import sliding_window_view
 
-# enums to make the tensor operation more readable
+# axis labels to make the tensor operations more readable
 class WindowAxes:
     Batch   = 0
     Channel = 1
@@ -19,20 +19,20 @@ class FilterAxes:
     Width       = 3
 
 
-class GradAxes:
-    Batch      = 0
-    OutChannel = 1
-    H_Pos      = 2
-    V_Pos      = 3
+class OutputGradAxes:
+    Batch       = 0
+    OutChannels = 1
+    H_Pos       = 2
+    V_Pos       = 3
 
 
 class Conv2DLayer:
     def __init__(self, in_channels, out_channels, kernel_size):
-        self.in_channel   = in_channels
+        self.in_channels  = in_channels
         self.out_channels = out_channels
         self.kernel_size  = kernel_size
 
-        # scale random weights using He initialization (multiplier 0.91 was found out experimentaly to produce best results)
+        # scale standardized weights; 0.91 was tuned experimentally for this setup
         scale = 0.91 * np.sqrt(2 / (in_channels * (kernel_size ** 2)))
 
         # init the filters
@@ -48,24 +48,24 @@ class Conv2DLayer:
 
     def forward(self, x):
         # x: (channels, H, W) unbatched, nebo (batch_size, channels, H, W)
-        K, WA, FA, GA = self.kernel_size, WindowAxes, FilterAxes, GradAxes
+        K, WA, FA, GA = self.kernel_size, WindowAxes, FilterAxes, OutputGradAxes
 
         # check if the tensor is batched or unbatched
         batched = (x.value.ndim > 3)
 
-        # in case of an unbatched tensor add the forth dimension of value 1
+        # add a batch dimension for an unbatched input
         x_val = x.value if batched else x.value.reshape(1, *x.value.shape)
 
         # stack filter weights and create a view of all sliding input windows
-        filter  = np.stack([k.value for k in self.kernels], axis=0)
+        filters = np.stack([k.value for k in self.kernels], axis=0)
         windows = sliding_window_view(x_val, (K, K), axis=(WA.H_Pos, WA.V_Pos))
 
-        # multiply all windows with the filter
-        result = np.tensordot(windows, filter, axes=(
+        # multiply all windows with the filters
+        result = np.tensordot(windows, filters, axes=(
             (WA.Channel,    WA.Height, WA.Width),
             (FA.InChannels, FA.Height, FA.Width)
         ))
-        # return OutChannels moved by tensordot back to position 1
+        # move the output channels produced by tensordot back to position 1
         result = np.moveaxis(result, -1, 1)
         # add bias to result
         result += self.bias.value[np.newaxis, :, np.newaxis, np.newaxis]
@@ -76,20 +76,20 @@ class Conv2DLayer:
 
         # function used for back-propagation
         def back_op(grad):
-            # add forth dimension when not batched
+            # add a batch dimension for an unbatched gradient
             grad_4d = grad if batched else grad.reshape(1, *grad.shape)
 
-            # compute the loss gradient to bias and pass it to the bias tensor
+            # compute the loss gradient with respect to the bias and pass it to the bias tensor
             grad_bias = np.sum(grad_4d, axis=(GA.Batch, GA.H_Pos, GA.V_Pos))
             self.bias.backward(grad_bias)
 
-            # compute the loss gradient to filter weights
+            # compute the loss gradient with respect to the filter weights
             grad_filter = np.tensordot(grad_4d, windows, axes=(
                 (GA.Batch, GA.H_Pos, GA.V_Pos),
                 (WA.Batch, WA.H_Pos, WA.V_Pos)
             ))
 
-            # pass the gradient to each out channel of the filter
+            # pass each output channel's filter gradient to its tensor
             for tensor, grad_weight in zip(self.kernels, grad_filter):
                 tensor.backward(grad_weight)
 
@@ -100,23 +100,23 @@ class Conv2DLayer:
                 mode='constant'
             )
 
-            # create sliding windows over the padded output gradient and rotate the filter by 180 degrees
-            grad_windows   = sliding_window_view(grad_padded, (K, K), axis=(WA.H_Pos, WA.V_Pos))
-            filter_flipped = filter[:, :, ::-1, ::-1]
+            # create sliding windows over the padded output gradient and rotate the filters by 180 degrees
+            grad_windows = sliding_window_view(grad_padded, (K, K), axis=(WA.H_Pos, WA.V_Pos))
+            filters_flipped = filters[:, :, ::-1, ::-1]
 
-            # calculate dotproduct of all the windows of the out gradient and the flipped filter
-            grad_x = np.tensordot(grad_windows, filter_flipped, axes=(
+            # compute the input gradient using the padded output gradient and flipped filters
+            grad_x = np.tensordot(grad_windows, filters_flipped, axes=(
                 (WA.Channel,     WA.Height, WA.Width),
                 (FA.OutChannels, FA.Height, FA.Width)
             ))
-            # return OutChannels moved by tensordot back to position 1
+            # move the input channels produced by tensordot back to position 1
             grad_x = np.moveaxis(grad_x, -1, 1)
 
             # unpack unbatched gradient
             if not batched:
                 grad_x = grad_x[0]
 
-            # pass the input gradient to the input tensor for further backpropagation
+            # pass the gradient to the input tensor for further backpropagation
             x.backward(grad_x)
 
         # return the convolution output tensor with its backward function
